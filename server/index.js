@@ -18,13 +18,24 @@ dotenv.config();
 const app = express();
 
 // Health Check for Deployment
-app.get('/api/health', (req, res) => {
+app.get('/api/health', async (req, res) => {
+  let dbStatus = 'checking...';
+  try {
+    await pool.query('SELECT 1');
+    dbStatus = 'connected';
+  } catch (err) {
+    dbStatus = `error: ${err.message}`;
+  }
+
   res.json({
     status: 'ok',
     time: new Date().toISOString(),
+    database: dbStatus,
     env: {
       hasToken: !!process.env.HUGGINGFACE_TOKEN,
-      nodeEnv: process.env.NODE_ENV || 'development'
+      tokenLength: process.env.HUGGINGFACE_TOKEN ? process.env.HUGGINGFACE_TOKEN.length : 0,
+      nodeEnv: process.env.NODE_ENV || 'development',
+      port: process.env.PORT || 5000
     }
   });
 });
