@@ -6,6 +6,8 @@ import { fileURLToPath } from 'url';
 import pool from './db.js';
 import { grammarSteps } from '../src/data/grammarData.js';
 import { HfInference } from '@huggingface/inference';
+import { GoogleGenerativeAI } from '@google/generative-ai';
+import Groq from 'groq-sdk';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -346,11 +348,14 @@ async function searchLocalGrammar(query) {
     if (keywords.length === 0) return null;
 
     // Search for sections that match keywords in title or pattern
-    let sql = 'SELECT s.title, s.pattern, s.content, st.title as lesson_title FROM sections s JOIN steps st ON s.step_id = st.id WHERE ';
+    // We select ID this time so examples query works!
+    let sql = 'SELECT s.id, s.title, s.pattern, s.content, st.title as lesson_title FROM sections s JOIN steps st ON s.step_id = st.id WHERE ';
+    
+    // Sort by matches: Prefer title matches over step matches
     const conditions = keywords.map(() => '(s.title LIKE ? OR s.pattern LIKE ? OR st.title LIKE ?)').join(' OR ');
     const params = keywords.flatMap(k => [`%${k}%`, `%${k}%`, `%${k}%`]);
 
-    const [sections] = await pool.query(sql + conditions + ' LIMIT 1', params);
+    const [sections] = await pool.query(sql + conditions + ' ORDER BY (s.title LIKE ?) DESC, (s.pattern LIKE ?) DESC LIMIT 1', [...params, `%${keywords[0]}%`, `%${keywords[0]}%`]);
     
     if (sections.length > 0) {
       const section = sections[0];
@@ -402,39 +407,80 @@ app.post('/api/chat', async (req, res) => {
 
     let botText = "";
     
-    // 4. Try Hugging Face API
-    const token = (process.env.HUGGINGFACE_TOKEN || '').trim();
-    if (token) {
+    // 4. Try Hugging Face API (Primary)
+    const hfToken = (process.env.HUGGINGFACE_TOKEN || '').trim();
+    if (hfToken) {
+      const hfModels = [
+        "google/gemma-2-2b-it", // Extremely stable on HF free tier
+        "HuggingFaceH4/zephyr-7b-beta",
+        "microsoft/Phi-3-mini-4k-instruct"
+      ];
+
+      for (const modelName of hfModels) {
+        try {
+          console.log(`Attempting HF Model: ${modelName}`);
+          const hf = new HfInference(hfToken);
+          const response = await hf.chatCompletion({
+            model: modelName,
+            messages: [
+              { role: "system", content: SYSTEM_PROMPT + contextPrompt },
+              ...chatHistory
+            ],
+            max_tokens: 1024,
+            temperature: 0.7,
+            wait_for_model: true
+          });
+
+          if (response.choices?.[0]?.message?.content) {
+            botText = response.choices[0].message.content;
+            console.log(`Success with HF Model: ${modelName}`);
+            break; 
+          }
+        } catch (aiError) {
+          console.error(`HF Model ${modelName} failed:`, aiError.message);
+        }
+      }
+    }
+
+    // 5. Try Groq (Secondary Fallback - Highly Recommended)
+    if (!botText && process.env.GROQ_API_KEY) {
       try {
-        const hf = new HfInference(token);
-        const response = await hf.chatCompletion({
-          model: "mistralai/Mistral-7B-Instruct-v0.2",
+        console.log('Attempting Groq Fallback...');
+        const groq = new Groq({ apiKey: process.env.GROQ_API_KEY.trim() });
+        const chatCompletion = await groq.chat.completions.create({
           messages: [
             { role: "system", content: SYSTEM_PROMPT + contextPrompt },
             ...chatHistory
           ],
-          max_tokens: 1024,
-          temperature: 0.7,
+          model: "llama-3.3-70b-versatile", // Updated to the latest stable model
         });
-
-        if (response.choices?.[0]?.message?.content) {
-          botText = response.choices[0].message.content;
-        } else {
-          console.error('Hugging Face Response empty or malformed:', response);
-        }
-      } catch (aiError) {
-        console.error('AI Call Error:', aiError.message);
-        try {
-          if (aiError.httpResponse && typeof aiError.httpResponse.text === 'function') {
-            const errBody = await aiError.httpResponse.text();
-            console.error('Error Body:', errBody);
-          }
-        } catch (innerErr) {
-          console.error('Could not parse error body');
-        }
+        botText = chatCompletion.choices[0]?.message?.content;
+      } catch (groqError) {
+        console.error('Groq Error:', groqError.message);
       }
-    } else {
-      console.error('AI Call skipped: No HUGGINGFACE_TOKEN found in process.env');
+    }
+
+    // 6. Try Gemini (Tertiary Fallback)
+    if (!botText && process.env.GEMINI_API_KEY) {
+      try {
+        console.log('Attempting Gemini Fallback...');
+        const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY.trim());
+        const modelsToTry = ["gemini-1.5-flash", "gemini-1.5-pro"];
+        
+        for (const modelName of modelsToTry) {
+          try {
+            const model = genAI.getGenerativeModel({ model: modelName });
+            const prompt = `${SYSTEM_PROMPT}\n\nContext:\n${contextPrompt}\n\nUser: ${message}`;
+            const result = await model.generateContent(prompt);
+            botText = result.response.text();
+            if (botText) break;
+          } catch (err) {
+            console.log(`Gemini ${modelName} failed.`);
+          }
+        }
+      } catch (geminiError) {
+        console.error('Gemini Error:', geminiError.message);
+      }
     }
 
     // 5. Fallback: If AI fails OR limit reached, use local data directly
