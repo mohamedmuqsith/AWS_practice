@@ -176,9 +176,9 @@ const ContentArea = ({ step, section, steps, onStepChange }) => {
       </div>
 
       {/* ===== PATTERN CARD ===== */}
-      {(currentSection.pattern || currentSection.content) && (
+      {currentSection.pattern && (
         <div className="animate-fade-in-up stagger-2 shimmer-bg" style={{
-          marginBottom: '28px', padding: '24px', borderRadius: '12px',
+          marginBottom: '20px', padding: '24px', borderRadius: '12px',
           background: '#1a1a1a', border: '1px solid rgba(255,69,0,0.2)',
           position: 'relative', overflow: 'hidden',
         }}>
@@ -186,10 +186,31 @@ const ContentArea = ({ step, section, steps, onStepChange }) => {
           <div style={{ position: 'relative', zIndex: 10, paddingLeft: '12px' }}>
             <div className="flex items-center gap-2" style={{ marginBottom: '10px' }}>
               <Zap size={14} style={{ color: '#ff4500' }} />
-              <h2 style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '3px', color: '#ff4500' }}>Pattern</h2>
+              <h2 style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '3px', color: '#ff4500' }}>Pattern / அமைப்பு</h2>
             </div>
             <p style={{ fontSize: '18px', fontWeight: 700, color: '#ffffff', fontFamily: "'Space Grotesk', sans-serif" }}>
-              {currentSection.pattern || currentSection.content}
+              {currentSection.pattern}
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* ===== EXPLANATION CARD ===== */}
+      {currentSection.content && (
+        <div className="animate-fade-in-up stagger-2" style={{
+          marginBottom: '28px', padding: '24px', borderRadius: '12px',
+          background: 'linear-gradient(135deg, rgba(34,197,94,0.08), rgba(16,185,129,0.05))',
+          border: '1px solid rgba(34,197,94,0.15)',
+          position: 'relative', overflow: 'hidden',
+        }}>
+          <div style={{ position: 'absolute', left: 0, top: 0, width: '4px', height: '100%', background: 'linear-gradient(180deg, #22c55e, #10b981)' }} />
+          <div style={{ position: 'relative', zIndex: 10, paddingLeft: '12px' }}>
+            <div className="flex items-center gap-2" style={{ marginBottom: '12px' }}>
+              <BookOpen size={14} style={{ color: '#22c55e' }} />
+              <h2 style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '3px', color: '#22c55e' }}>Explanation / விளக்கம்</h2>
+            </div>
+            <p style={{ fontSize: '15px', fontWeight: 500, color: '#d1d5db', lineHeight: 1.8, whiteSpace: 'pre-line' }}>
+              {currentSection.content}
             </p>
           </div>
         </div>

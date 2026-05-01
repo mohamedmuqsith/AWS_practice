@@ -5,6 +5,7 @@ import Sidebar from './components/Sidebar';
 import ContentArea from './components/ContentArea';
 import AdminPanel from './components/AdminPanel';
 import AdminLogin from './components/AdminLogin';
+import DebugPanel from './components/DebugPanel';
 import { useGrammar } from './context/GrammarContext';
 import { Shield } from 'lucide-react';
 
@@ -98,6 +99,9 @@ function App() {
       >
         <Shield size={22} color="#fff" />
       </button>
+
+      {/* Debug Panel */}
+      <DebugPanel />
     </div>
   );
 }

@@ -89,7 +89,7 @@ const AdminLogin = () => {
         </form>
 
         <p style={{ fontSize: '11px', color: '#4b5563', textAlign: 'center', marginTop: '20px' }}>
-          Default password: <span style={{ color: '#9ca3af' }}></span>
+          Default password: <span style={{ color: '#9ca3af', fontWeight: 600 }}>Mu200535@1</span>
         </p>
       </div>
 

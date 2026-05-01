@@ -188,7 +188,11 @@ app.delete('/api/steps/:id', async (req, res) => {
 app.post('/api/steps/:stepId/sections', async (req, res) => {
   const { stepId } = req.params;
   const { title, pattern, content } = req.body;
-  const sectionId = title.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+  // Use a more robust ID generation: stepId + slug + random string or just let DB handle it?
+  // Given the current schema uses VARCHAR PRIMARY KEY, we'll prefix with stepId.
+  const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+  const sectionId = `${stepId}-${slug}-${Math.random().toString(36).substring(2, 7)}`;
+  
   try {
     await pool.query('INSERT INTO sections (id, step_id, title, pattern, content) VALUES (?, ?, ?, ?, ?)', [sectionId, stepId, title, pattern, content]);
     res.json({ id: sectionId, title, pattern, content, examples: [] });

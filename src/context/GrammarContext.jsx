@@ -17,23 +17,28 @@ export const GrammarProvider = ({ children }) => {
     try {
       setLoading(true);
       const res = await fetch('/api/grammar');
-      if (!res.ok) throw new Error('Failed to fetch');
+      if (!res.ok) throw new Error(`API error: ${res.status}`);
       const data = await res.json();
       if (data && data.length > 0) {
+        console.log('✅ Loaded data from database:', data.length, 'steps');
         setSteps(data);
       } else {
+        console.log('⚠️ Database empty, loading fallback data...');
         // If no data, use fallback from grammarData
         const { grammarSteps } = await import('../data/grammarData');
+        console.log('✅ Loaded fallback data:', grammarSteps.length, 'steps');
         setSteps(grammarSteps);
       }
     } catch (error) {
-      console.error('Error loading grammar data from database:', error);
+      console.error('❌ Error loading grammar data from database:', error);
+      console.log('📦 Attempting to load fallback local data...');
       // Fallback to local grammar data if API fails
       try {
         const { grammarSteps } = await import('../data/grammarData');
+        console.log('✅ Loaded fallback data:', grammarSteps.length, 'steps');
         setSteps(grammarSteps);
       } catch (fallbackError) {
-        console.error('Fallback error:', fallbackError);
+        console.error('❌ Fallback error:', fallbackError);
         setSteps([]);
       }
     } finally {
@@ -70,6 +75,7 @@ export const GrammarProvider = ({ children }) => {
       if (res.ok) {
         const newStep = await res.json();
         setSteps([...steps, newStep]);
+        return newStep;
       }
     } catch (error) { console.error(error); }
   };
@@ -106,7 +112,8 @@ export const GrammarProvider = ({ children }) => {
       });
       if (res.ok) {
         const newSection = await res.json();
-        setSteps(steps.map(s => s.id === stepId ? { ...s, sections: [...s.sections, newSection] } : s));
+        setSteps(prevSteps => prevSteps.map(s => s.id === stepId ? { ...s, sections: [...s.sections, newSection] } : s));
+        return newSection;
       }
     } catch (error) { console.error(error); }
   };
@@ -148,7 +155,7 @@ export const GrammarProvider = ({ children }) => {
         body: JSON.stringify({ content: example })
       });
       if (res.ok) {
-        setSteps(steps.map(s => {
+        setSteps(prevSteps => prevSteps.map(s => {
           if (s.id !== stepId) return s;
           return {
             ...s,
@@ -158,8 +165,10 @@ export const GrammarProvider = ({ children }) => {
             })
           };
         }));
+        return true;
       }
     } catch (error) { console.error(error); }
+    return false;
   };
 
   const updateExample = async (stepId, sectionId, exampleIndex, newExample) => {
