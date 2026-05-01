@@ -19,10 +19,23 @@ export const GrammarProvider = ({ children }) => {
       const res = await fetch('/api/grammar');
       if (!res.ok) throw new Error('Failed to fetch');
       const data = await res.json();
-      setSteps(data);
+      if (data && data.length > 0) {
+        setSteps(data);
+      } else {
+        // If no data, use fallback from grammarData
+        const { grammarSteps } = await import('../data/grammarData');
+        setSteps(grammarSteps);
+      }
     } catch (error) {
       console.error('Error loading grammar data from database:', error);
-      // Fallback or empty state could be handled here
+      // Fallback to local grammar data if API fails
+      try {
+        const { grammarSteps } = await import('../data/grammarData');
+        setSteps(grammarSteps);
+      } catch (fallbackError) {
+        console.error('Fallback error:', fallbackError);
+        setSteps([]);
+      }
     } finally {
       setLoading(false);
     }

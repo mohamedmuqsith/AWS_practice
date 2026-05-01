@@ -99,7 +99,15 @@ const ContentArea = ({ step, section, steps, onStepChange }) => {
   }
 
   // ===== LESSON CONTENT =====
-  const currentSection = section || step.sections[0];
+  const currentSection = section || (step?.sections && step.sections.length > 0 ? step.sections[0] : null);
+
+  if (!currentSection) {
+    return (
+      <div style={{ minHeight: '80vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+        <p style={{ color: '#9ca3af', fontSize: '16px' }}>No sections available. Please initialize the database.</p>
+      </div>
+    );
+  }
 
   return (
     <div style={{ width: '100%', maxWidth: '900px', margin: '0 auto' }}>
