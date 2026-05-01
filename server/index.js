@@ -15,7 +15,7 @@ app.use(cors());
 app.use(express.json());
 
 // Initialize database
-app.post('/api/init', async (req, res) => {
+app.get('/api/init', async (req, res) => {
   try {
     console.log('Starting database initialization...');
 
