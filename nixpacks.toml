@@ -1,5 +1,5 @@
 [build]
-command = "npm run build"
+cmd = "npm run build"
 
 [start]
-command = "npm run start"
+cmd = "npm run start"
