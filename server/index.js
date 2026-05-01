@@ -5,21 +5,27 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import pool from './db.js';
 import { grammarSteps } from '../src/data/grammarData.js';
+import { HfInference } from '@huggingface/inference';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 dotenv.config({ path: path.join(__dirname, '../.env') });
 
 const app = express();
+if (!process.env.HUGGINGFACE_TOKEN) {
+  console.error('CRITICAL: HUGGINGFACE_TOKEN is missing in .env');
+} else {
+  const t = process.env.HUGGINGFACE_TOKEN;
+  console.log(`Hugging Face Token Loaded: ${t.substring(0, 7)}...${t.substring(t.length - 4)}`);
+}
+const hf = new HfInference(process.env.HUGGINGFACE_TOKEN);
+
 app.use(cors());
 app.use(express.json());
 
-// Initialize database
-app.get('/api/init', async (req, res) => {
+// Initialize database tables on startup
+const initDB = async () => {
   try {
-    console.log('Starting database initialization...');
-
-    // Create tables
     const createStepsTable = `
       CREATE TABLE IF NOT EXISTS steps (
         id INT PRIMARY KEY,
@@ -64,7 +70,20 @@ app.get('/api/init', async (req, res) => {
     await pool.query(createSectionsTable);
     await pool.query(createExamplesTable);
     await pool.query(createChatMessagesTable);
-    console.log('Tables created.');
+    console.log('Database tables verified/created.');
+  } catch (error) {
+    console.error('Database initialization error:', error);
+  }
+};
+
+// Initial run
+initDB();
+
+// Initialize database route
+app.get('/api/init', async (req, res) => {
+  try {
+    console.log('Starting full database data reset...');
+    await initDB();
 
     // Clear existing data
     await pool.query('SET FOREIGN_KEY_CHECKS = 0');
@@ -292,12 +311,41 @@ app.delete('/api/steps/:stepId/sections/:sectionId/examples/:exampleIndex', asyn
 
 // ===== CHAT AI ENDPOINTS =====
 const SYSTEM_PROMPT = `You are a helpful and expert English Grammar Tutor. Your goal is to help users learn English.
-- If the user asks a question in Tamil, explain it in Tamil but provide English examples and focus on teaching the English equivalent.
+- Use the provided context from the app's grammar database if available.
+- If the user asks a question in Tamil, explain it in Tamil but provide English examples.
 - If the user asks in English, respond in English.
-- Be encouraging, patient, and use simple language when explaining complex rules.
-- Always provide clear examples.
-- You can correct the user's grammar if they make mistakes in their messages.
+- Be encouraging, patient, and provide clear examples.
+- You can correct the user's grammar mistakes.
 - Keep responses concise and formatted for a chat interface.`;
+
+// Helper to search local database for relevant grammar info
+async function searchLocalGrammar(query) {
+  try {
+    const keywords = query.toLowerCase().split(' ').filter(w => w.length > 3);
+    if (keywords.length === 0) return null;
+
+    // Search for sections that match keywords in title or pattern
+    let sql = 'SELECT s.title, s.pattern, s.content, st.title as lesson_title FROM sections s JOIN steps st ON s.step_id = st.id WHERE ';
+    const conditions = keywords.map(() => '(s.title LIKE ? OR s.pattern LIKE ? OR st.title LIKE ?)').join(' OR ');
+    const params = keywords.flatMap(k => [`%${k}%`, `%${k}%`, `%${k}%`]);
+
+    const [sections] = await pool.query(sql + conditions + ' LIMIT 1', params);
+    
+    if (sections.length > 0) {
+      const section = sections[0];
+      // Get examples for this section
+      const [examples] = await pool.query('SELECT content FROM examples WHERE section_id = ? LIMIT 3', [section.id]);
+      return {
+        ...section,
+        examples: examples.map(e => e.content)
+      };
+    }
+    return null;
+  } catch (error) {
+    console.error('Local search error:', error);
+    return null;
+  }
+}
 
 app.get('/api/chat/history/:sessionId', async (req, res) => {
   const { sessionId } = req.params;
@@ -312,47 +360,61 @@ app.get('/api/chat/history/:sessionId', async (req, res) => {
 
 app.post('/api/chat', async (req, res) => {
   const { sessionId, message } = req.body;
-  const apiKey = process.env.GEMINI_API_KEY;
-
-  if (!apiKey) return res.status(500).json({ error: 'Gemini API Key missing' });
 
   try {
     // 1. Save user message
     await pool.query('INSERT INTO chat_messages (session_id, sender, text) VALUES (?, ?, ?)', [sessionId, 'user', message]);
 
-    // 2. Get recent context for AI
-    const [history] = await pool.query('SELECT sender, text FROM chat_messages WHERE session_id = ? ORDER BY created_at DESC LIMIT 10', [sessionId]);
+    // 2. Search local database for context
+    const localData = await searchLocalGrammar(message);
+    let contextPrompt = "";
+    if (localData) {
+      contextPrompt = `\n\nCONTEXT FROM OUR DATABASE:\nLesson: ${localData.lesson_title}\nSection: ${localData.title}\nPattern: ${localData.pattern || 'N/A'}\nExplanation: ${localData.content || 'N/A'}\nExamples: ${localData.examples?.join(', ') || 'N/A'}`;
+    }
+
+    // 3. Prepare AI Prompt for Hugging Face (ChatML format)
+    const [history] = await pool.query('SELECT sender, text FROM chat_messages WHERE session_id = ? ORDER BY created_at DESC LIMIT 6', [sessionId]);
     const chatHistory = history.reverse().map(h => ({
-      role: h.sender === 'user' ? 'user' : 'model',
-      parts: [{ text: h.text }]
+      role: h.sender === 'user' ? 'user' : 'assistant',
+      content: h.text
     }));
 
-    // 3. Call Gemini API
-    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [
-          { role: 'user', parts: [{ text: SYSTEM_PROMPT }] },
-          { role: 'model', parts: [{ text: "Understood. I am now your English Grammar Tutor. I will help you learn English, responding in Tamil or English as appropriate." }] },
-          ...chatHistory
-        ],
-        generationConfig: {
+    let botText = "";
+    
+    // 4. Try Hugging Face API
+    if (process.env.HUGGINGFACE_TOKEN) {
+      try {
+        const response = await hf.chatCompletion({
+          model: "mistralai/Mistral-7B-Instruct-v0.2",
+          messages: [
+            { role: "system", content: SYSTEM_PROMPT + contextPrompt },
+            ...chatHistory
+          ],
+          max_tokens: 1024,
           temperature: 0.7,
-          topK: 40,
-          topP: 0.95,
-          maxOutputTokens: 1024,
+        });
+
+        if (response.choices?.[0]?.message?.content) {
+          botText = response.choices[0].message.content;
         }
-      })
-    });
+      } catch (aiError) {
+        console.error('Hugging Face API Error:', aiError);
+      }
+    }
 
-    const data = await response.json();
-    const botText = data.candidates?.[0]?.content?.parts?.[0]?.text || "I'm sorry, I encountered an error processing your request.";
+    // 5. Fallback: If AI fails OR limit reached, use local data directly
+    if (!botText) {
+      if (localData) {
+        botText = `I'm currently in offline mode (AI limit reached). Here is what I found in our Grammar Lessons about "${localData.title}":\n\n${localData.content || 'Please refer to the lesson area.'}\n\nPattern: ${localData.pattern || 'N/A'}\n\nExample: ${localData.examples?.[0] || 'Check the lesson examples!'}`;
+      } else {
+        botText = "I'm currently in offline mode and couldn't find a specific match in our lessons. Please try again later or browse the lessons sidebar!";
+      }
+    }
 
-    // 4. Save bot response
+    // 6. Save and return bot response
     await pool.query('INSERT INTO chat_messages (session_id, sender, text) VALUES (?, ?, ?)', [sessionId, 'bot', botText]);
-
     res.json({ text: botText });
+
   } catch (error) {
     console.error('Chat API Error:', error);
     res.status(500).json({ error: 'Failed to process chat' });
@@ -379,6 +441,6 @@ app.use((req, res) => {
 });
 
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
+app.listen(PORT, '0.0.0.0', () => {
   console.log(`Server running on port ${PORT}`);
 });
