@@ -3,12 +3,44 @@ import { MessageSquare, X, Send, Bot, User, Sparkles, Loader2, ArrowUp, Plus, Se
 
 const ChatTutor = () => {
   const [isOpen, setIsOpen] = useState(false);
-  const [messages, setMessages] = useState([
-    { id: 1, text: "Hello! I'm your AI Grammar Tutor. How can I assist with your English learning today?", sender: 'bot', time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }
-  ]);
+  const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
+  const [sessionId, setSessionId] = useState('');
   const messagesEndRef = useRef(null);
+
+  // Initialize Session ID and History
+  useEffect(() => {
+    let sid = localStorage.getItem('grammar_chat_sid');
+    if (!sid) {
+      sid = 'sid_' + Math.random().toString(36).substring(2, 11);
+      localStorage.setItem('grammar_chat_sid', sid);
+    }
+    setSessionId(sid);
+    fetchHistory(sid);
+  }, []);
+
+  const fetchHistory = async (sid) => {
+    try {
+      const res = await fetch(`/api/chat/history/${sid}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.length > 0) {
+          setMessages(data.map(m => ({
+            id: m.id,
+            text: m.text,
+            sender: m.sender,
+            time: new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+          })));
+        } else {
+          // Welcome message if no history
+          setMessages([
+            { id: 'welcome', text: "Hello! I'm your AI Grammar Tutor. How can I assist with your English learning today? (Tamil support available!)", sender: 'bot', time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }
+          ]);
+        }
+      }
+    } catch (err) { console.error('Failed to load history:', err); }
+  };
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -21,43 +53,55 @@ const ChatTutor = () => {
   const handleSend = async (text = input) => {
     if (!text.trim()) return;
 
-    const userMessage = {
+    const userMsgText = text.trim();
+    const tempUserMessage = {
       id: Date.now(),
-      text: text,
+      text: userMsgText,
       sender: 'user',
       time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     };
 
-    setMessages(prev => [...prev, userMessage]);
+    setMessages(prev => [...prev, tempUserMessage]);
     setInput('');
     setIsTyping(true);
 
-    // Simulate AI Response
-    setTimeout(() => {
-      const botResponse = {
-        id: Date.now() + 1,
-        text: getBotResponse(text),
+    try {
+      const res = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId, message: userMsgText })
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        const botResponse = {
+          id: Date.now() + 1,
+          text: data.text,
+          sender: 'bot',
+          time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        };
+        setMessages(prev => [...prev, botResponse]);
+      } else {
+        throw new Error('API Error');
+      }
+    } catch (error) {
+      console.error('Chat Error:', error);
+      setMessages(prev => [...prev, {
+        id: Date.now() + 2,
+        text: "I'm having trouble connecting to the brain center. Please try again in a moment.",
         sender: 'bot',
         time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-      };
-      setMessages(prev => [...prev, botResponse]);
+      }]);
+    } finally {
       setIsTyping(false);
-    }, 1200);
-  };
-
-  const getBotResponse = (query) => {
-    const q = query.toLowerCase();
-    if (q.includes('hello') || q.includes('hi')) return "Hi! I'm ready to help you with any English grammar questions or practice exercises.";
-    if (q.includes('tense')) return "Tenses tell us when an action happens. For example, 'I eat' (present) vs 'I ate' (past). Do you want to practice a specific tense?";
-    if (q.includes('article')) return "Articles like 'a', 'an', and 'the' help specify nouns. 'The' is for specific things, 'a/an' for general ones. Need some examples?";
-    return "That's a great grammar point! In a full implementation, I would provide a detailed breakdown here with examples and exercises. What else would you like to know?";
+    }
   };
 
   const suggestions = [
-    "Explain Present Perfect",
-    "Practice Articles (A/An/The)",
-    "Correct my sentence: 'He don't like apples'",
-    "Common Preposition mistakes"
+    "Explain Present Perfect in Tamil",
+    "How to use 'The' properly?",
+    "Check grammar: 'He study hard'",
+    "5 common English idioms"
   ];
 
   if (!isOpen) {
@@ -100,7 +144,7 @@ const ChatTutor = () => {
             <Bot size={20} />
           </div>
           <div>
-            <h1 style={{ fontSize: '15px', fontWeight: 600 }}>GrammarGPT <span style={{ color: '#6b7280', fontSize: '12px', marginLeft: '4px', fontWeight: 400 }}>v4.0</span></h1>
+            <h1 style={{ fontSize: '15px', fontWeight: 600 }}>GrammarGPT <span style={{ color: '#10a37f', fontSize: '10px', marginLeft: '6px', fontWeight: 700, border: '1px solid #10a37f', padding: '1px 4px', borderRadius: '4px' }}>CONNECTED</span></h1>
           </div>
         </div>
         <button onClick={() => setIsOpen(false)} style={{ 
@@ -122,7 +166,7 @@ const ChatTutor = () => {
           width: '100%', maxWidth: '768px', padding: '40px 20px',
           display: 'flex', flexDirection: 'column', gap: '32px'
         }}>
-          {messages.length === 1 && (
+          {messages.length <= 1 && !isTyping && (
             <div style={{ textAlign: 'center', marginTop: '10vh', marginBottom: '20px' }}>
               <div style={{ 
                 width: '64px', height: '64px', borderRadius: '50%', background: '#fff', color: '#000',
@@ -130,7 +174,7 @@ const ChatTutor = () => {
               }}>
                 <Bot size={36} />
               </div>
-              <h2 style={{ fontSize: '24px', fontWeight: 600, marginBottom: '32px' }}>How can I help you today?</h2>
+              <h2 style={{ fontSize: '24px', fontWeight: 600, marginBottom: '32px' }}>How can I help you learn today?</h2>
               
               <div style={{ 
                 display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
@@ -162,7 +206,7 @@ const ChatTutor = () => {
             }}>
               <div style={{ 
                 width: '32px', height: '32px', borderRadius: '50%', flexShrink: 0,
-                background: msg.sender === 'bot' ? '#19c37d' : '#ab68ff',
+                background: msg.sender === 'bot' ? '#10a37f' : '#3c4043',
                 display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff'
               }}>
                 {msg.sender === 'bot' ? <Bot size={18} /> : <User size={18} />}
@@ -185,7 +229,7 @@ const ChatTutor = () => {
             <div style={{ display: 'flex', gap: '20px', width: '100%' }}>
               <div style={{ 
                 width: '32px', height: '32px', borderRadius: '50%', flexShrink: 0,
-                background: '#19c37d', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff'
+                background: '#10a37f', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff'
               }}>
                 <Bot size={18} />
               </div>

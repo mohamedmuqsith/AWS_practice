@@ -50,9 +50,20 @@ app.get('/api/init', async (req, res) => {
       )
     `;
 
+    const createChatMessagesTable = `
+      CREATE TABLE IF NOT EXISTS chat_messages (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        session_id VARCHAR(255) NOT NULL,
+        sender ENUM('user', 'bot') NOT NULL,
+        text TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `;
+
     await pool.query(createStepsTable);
     await pool.query(createSectionsTable);
     await pool.query(createExamplesTable);
+    await pool.query(createChatMessagesTable);
     console.log('Tables created.');
 
     // Clear existing data
@@ -276,6 +287,75 @@ app.delete('/api/steps/:stepId/sections/:sectionId/examples/:exampleIndex', asyn
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Failed to delete example' });
+  }
+});
+
+// ===== CHAT AI ENDPOINTS =====
+const SYSTEM_PROMPT = `You are a helpful and expert English Grammar Tutor. Your goal is to help users learn English.
+- If the user asks a question in Tamil, explain it in Tamil but provide English examples and focus on teaching the English equivalent.
+- If the user asks in English, respond in English.
+- Be encouraging, patient, and use simple language when explaining complex rules.
+- Always provide clear examples.
+- You can correct the user's grammar if they make mistakes in their messages.
+- Keep responses concise and formatted for a chat interface.`;
+
+app.get('/api/chat/history/:sessionId', async (req, res) => {
+  const { sessionId } = req.params;
+  try {
+    const [rows] = await pool.query('SELECT * FROM chat_messages WHERE session_id = ? ORDER BY created_at ASC', [sessionId]);
+    res.json(rows);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Failed to fetch chat history' });
+  }
+});
+
+app.post('/api/chat', async (req, res) => {
+  const { sessionId, message } = req.body;
+  const apiKey = process.env.GEMINI_API_KEY;
+
+  if (!apiKey) return res.status(500).json({ error: 'Gemini API Key missing' });
+
+  try {
+    // 1. Save user message
+    await pool.query('INSERT INTO chat_messages (session_id, sender, text) VALUES (?, ?, ?)', [sessionId, 'user', message]);
+
+    // 2. Get recent context for AI
+    const [history] = await pool.query('SELECT sender, text FROM chat_messages WHERE session_id = ? ORDER BY created_at DESC LIMIT 10', [sessionId]);
+    const chatHistory = history.reverse().map(h => ({
+      role: h.sender === 'user' ? 'user' : 'model',
+      parts: [{ text: h.text }]
+    }));
+
+    // 3. Call Gemini API
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [
+          { role: 'user', parts: [{ text: SYSTEM_PROMPT }] },
+          { role: 'model', parts: [{ text: "Understood. I am now your English Grammar Tutor. I will help you learn English, responding in Tamil or English as appropriate." }] },
+          ...chatHistory
+        ],
+        generationConfig: {
+          temperature: 0.7,
+          topK: 40,
+          topP: 0.95,
+          maxOutputTokens: 1024,
+        }
+      })
+    });
+
+    const data = await response.json();
+    const botText = data.candidates?.[0]?.content?.parts?.[0]?.text || "I'm sorry, I encountered an error processing your request.";
+
+    // 4. Save bot response
+    await pool.query('INSERT INTO chat_messages (session_id, sender, text) VALUES (?, ?, ?)', [sessionId, 'bot', botText]);
+
+    res.json({ text: botText });
+  } catch (error) {
+    console.error('Chat API Error:', error);
+    res.status(500).json({ error: 'Failed to process chat' });
   }
 });
 
