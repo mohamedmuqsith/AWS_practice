@@ -17,6 +17,18 @@ dotenv.config();
 
 const app = express();
 
+// Health Check for Deployment
+app.get('/api/health', (req, res) => {
+  res.json({
+    status: 'ok',
+    time: new Date().toISOString(),
+    env: {
+      hasToken: !!process.env.HUGGINGFACE_TOKEN,
+      nodeEnv: process.env.NODE_ENV || 'development'
+    }
+  });
+});
+
 app.use(cors());
 app.use(express.json());
 
@@ -401,9 +413,13 @@ app.post('/api/chat', async (req, res) => {
         }
       } catch (aiError) {
         console.error('AI Call Error:', aiError.message);
-        if (aiError.httpResponse) {
-          const errBody = await aiError.httpResponse.text();
-          console.error('Error Body:', errBody);
+        try {
+          if (aiError.httpResponse && typeof aiError.httpResponse.text === 'function') {
+            const errBody = await aiError.httpResponse.text();
+            console.error('Error Body:', errBody);
+          }
+        } catch (innerErr) {
+          console.error('Could not parse error body');
         }
       }
     } else {
@@ -441,12 +457,14 @@ app.post('/api/reset', async (req, res) => {
 });
 
 // Serve static React build files in production
-const frontendPath = path.join(__dirname, '../dist');
+const frontendPath = path.resolve(__dirname, '../dist');
+console.log('Serving frontend from:', frontendPath);
 app.use(express.static(frontendPath));
 
 app.use((req, res) => {
   res.sendFile(path.join(frontendPath, 'index.html'));
 });
+
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, '0.0.0.0', () => {

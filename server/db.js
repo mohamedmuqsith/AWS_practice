@@ -5,7 +5,9 @@ import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-dotenv.config({ path: path.join(__dirname, '../.env') });
+// Load environment variables. In production, these are injected by the host.
+dotenv.config(); 
+
 
 const pool = mysql.createPool({
   host: process.env.DB_HOST,

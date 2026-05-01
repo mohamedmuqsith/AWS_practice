@@ -73,23 +73,24 @@ const ChatTutor = () => {
 
       if (res.ok) {
         const data = await res.json();
-        const botResponse = {
+        setMessages(prev => [...prev, {
           id: Date.now() + 1,
           text: data.text,
           sender: 'bot',
           time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-        };
-        setMessages(prev => [...prev, botResponse]);
+        }]);
       } else {
-        throw new Error('API Error');
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData.error || `Server Error (${res.status})`);
       }
     } catch (error) {
       console.error('Chat Error:', error);
       setMessages(prev => [...prev, {
         id: Date.now() + 2,
-        text: "I'm having trouble connecting. Please check your connection.",
+        text: `Connection Error: ${error.message}. Please check if the server is running.`,
         sender: 'bot',
-        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        isError: true
       }]);
     } finally {
       setIsTyping(false);
