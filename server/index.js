@@ -9,7 +9,11 @@ import { HfInference } from '@huggingface/inference';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-dotenv.config({ path: path.join(__dirname, '../.env') });
+
+// Load .env from root if it exists (for local dev)
+// On hosting platforms, variables are usually injected via process.env automatically.
+dotenv.config(); 
+
 
 const app = express();
 if (!process.env.HUGGINGFACE_TOKEN) {
@@ -396,10 +400,18 @@ app.post('/api/chat', async (req, res) => {
 
         if (response.choices?.[0]?.message?.content) {
           botText = response.choices[0].message.content;
+        } else {
+          console.error('Hugging Face Response empty or malformed:', response);
         }
       } catch (aiError) {
-        console.error('Hugging Face API Error:', aiError);
+        console.error('Hugging Face API Error Details:');
+        console.error('Message:', aiError.message);
+        if (aiError.httpResponse) {
+          console.error('Status:', aiError.httpResponse.status);
+        }
       }
+    } else {
+      console.error('Hugging Face AI Call skipped: Token is missing from process.env');
     }
 
     // 5. Fallback: If AI fails OR limit reached, use local data directly
