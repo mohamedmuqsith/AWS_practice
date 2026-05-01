@@ -16,16 +16,10 @@ dotenv.config();
 
 
 const app = express();
-if (!process.env.HUGGINGFACE_TOKEN) {
-  console.error('CRITICAL: HUGGINGFACE_TOKEN is missing in .env');
-} else {
-  const t = process.env.HUGGINGFACE_TOKEN;
-  console.log(`Hugging Face Token Loaded: ${t.substring(0, 7)}...${t.substring(t.length - 4)}`);
-}
-const hf = new HfInference(process.env.HUGGINGFACE_TOKEN);
 
 app.use(cors());
 app.use(express.json());
+
 
 // Initialize database tables on startup
 const initDB = async () => {
@@ -386,8 +380,10 @@ app.post('/api/chat', async (req, res) => {
     let botText = "";
     
     // 4. Try Hugging Face API
-    if (process.env.HUGGINGFACE_TOKEN) {
+    const token = (process.env.HUGGINGFACE_TOKEN || '').trim();
+    if (token) {
       try {
+        const hf = new HfInference(token);
         const response = await hf.chatCompletion({
           model: "mistralai/Mistral-7B-Instruct-v0.2",
           messages: [
@@ -404,14 +400,14 @@ app.post('/api/chat', async (req, res) => {
           console.error('Hugging Face Response empty or malformed:', response);
         }
       } catch (aiError) {
-        console.error('Hugging Face API Error Details:');
-        console.error('Message:', aiError.message);
+        console.error('AI Call Error:', aiError.message);
         if (aiError.httpResponse) {
-          console.error('Status:', aiError.httpResponse.status);
+          const errBody = await aiError.httpResponse.text();
+          console.error('Error Body:', errBody);
         }
       }
     } else {
-      console.error('Hugging Face AI Call skipped: Token is missing from process.env');
+      console.error('AI Call skipped: No HUGGINGFACE_TOKEN found in process.env');
     }
 
     // 5. Fallback: If AI fails OR limit reached, use local data directly
