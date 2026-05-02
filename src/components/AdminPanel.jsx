@@ -24,6 +24,29 @@ const AdminPanel = ({ onBack }) => {
   const [showAddSection, setShowAddSection] = useState(null);
   const [showAddExample, setShowAddExample] = useState(null);
   const [confirmReset, setConfirmReset] = useState(false);
+  const [activeTab, setActiveTab] = useState('content'); // 'content' or 'seo'
+  const [seoKeyword, setSeoKeyword] = useState('');
+  const [seoResults, setSeoResults] = useState(null);
+  const [loadingSeo, setLoadingSeo] = useState(false);
+
+  const handleAnalyzeSeo = async () => {
+    if (!seoKeyword.trim()) return;
+    setLoadingSeo(true);
+    try {
+      const response = await fetch('/api/seo/analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ keyword: seoKeyword.trim() })
+      });
+      const data = await response.json();
+      setSeoResults(data);
+    } catch (error) {
+      console.error('SEO analysis failed:', error);
+      alert('Failed to analyze SEO. Please try again.');
+    } finally {
+      setLoadingSeo(false);
+    }
+  };
 
   // Form states
   const [newStepTitle, setNewStepTitle] = useState('');
@@ -123,9 +146,38 @@ const AdminPanel = ({ onBack }) => {
               <h1 style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: '16px', fontWeight: 800, color: '#fff' }}>
                 ADMIN <span className="gradient-text">PANEL</span>
               </h1>
-              <p style={{ fontSize: '10px', color: '#6b7280', letterSpacing: '2px', textTransform: 'uppercase' }}>Content Management</p>
+              <p style={{ fontSize: '10px', color: '#6b7280', letterSpacing: '2px', textTransform: 'uppercase' }}>
+                {activeTab === 'content' ? 'Content Management' : 'SEO Optimization'}
+              </p>
             </div>
           </div>
+          
+          {/* Tabs */}
+          <div style={{ display: 'flex', background: 'rgba(255,255,255,0.05)', borderRadius: '10px', padding: '4px' }}>
+            <button 
+              onClick={() => setActiveTab('content')}
+              style={{
+                ...btnGhost,
+                background: activeTab === 'content' ? 'rgba(255,69,0,0.1)' : 'transparent',
+                color: activeTab === 'content' ? '#ff4500' : '#9ca3af',
+                border: 'none', padding: '6px 16px', borderRadius: '8px'
+              }}
+            >
+              <Layers size={14} /> Content
+            </button>
+            <button 
+              onClick={() => setActiveTab('seo')}
+              style={{
+                ...btnGhost,
+                background: activeTab === 'seo' ? 'rgba(255,69,0,0.1)' : 'transparent',
+                color: activeTab === 'seo' ? '#ff4500' : '#9ca3af',
+                border: 'none', padding: '6px 16px', borderRadius: '8px'
+              }}
+            >
+              <Sparkles size={14} /> SEO Tools
+            </button>
+          </div>
+
           <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
             <button onClick={() => setConfirmReset(true)} style={btnGhost}>
               <RotateCcw size={12} /> Reset
@@ -269,8 +321,96 @@ const AdminPanel = ({ onBack }) => {
         </div>
       ), () => setShowAddStep(false))}
 
-      {/* ===== MAIN CONTENT ===== */}
-      <div style={{ maxWidth: '900px', margin: '0 auto', padding: '24px 16px' }}>
+      {/* ===== SEO TAB CONTENT ===== */}
+      {activeTab === 'seo' && (
+        <div style={{ maxWidth: '900px', margin: '0 auto', padding: '24px 16px' }}>
+          <div style={{ background: '#1a1a1a', borderRadius: '16px', padding: '24px', border: '1px solid rgba(255,69,0,0.15)' }}>
+            <h2 style={{ fontSize: '20px', fontWeight: 800, color: '#fff', marginBottom: '8px' }}>SEO <span className="gradient-text">ANALYZER</span></h2>
+            <p style={{ color: '#9ca3af', fontSize: '13px', marginBottom: '24px' }}>Analyze keywords and search trends using the Serper API to improve your content's visibility.</p>
+            
+            <div style={{ display: 'flex', gap: '10px', marginBottom: '24px' }}>
+              <input 
+                value={seoKeyword}
+                onChange={(e) => setSeoKeyword(e.target.value)}
+                placeholder="Enter keyword (e.g. English Grammar Tenses)"
+                style={inputStyle}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleAnalyzeSeo();
+                }}
+              />
+              <button 
+                onClick={handleAnalyzeSeo}
+                disabled={loadingSeo || !seoKeyword.trim()}
+                style={{ ...btnPrimary, padding: '0 24px', height: '42px', opacity: loadingSeo ? 0.6 : 1 }}
+              >
+                {loadingSeo ? 'Analyzing...' : 'Analyze'}
+              </button>
+            </div>
+
+            {seoResults && (
+              <div className="animate-fade-in">
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginBottom: '32px' }}>
+                  {/* Organic Results */}
+                  <div>
+                    <h3 style={labelStyle}>Top Search Results</h3>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                      {seoResults.organic?.map((res, i) => (
+                        <div key={i} style={{ padding: '12px', background: 'rgba(255,255,255,0.02)', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.05)' }}>
+                          <a href={res.link} target="_blank" rel="noreferrer" style={{ color: '#ff4500', fontSize: '14px', fontWeight: 700, textDecoration: 'none' }}>{res.title}</a>
+                          <p style={{ color: '#6b7280', fontSize: '12px', marginTop: '4px', lineHeight: '1.4' }}>{res.snippet}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* People Also Ask & Related */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                    {seoResults.peopleAlsoAsk && seoResults.peopleAlsoAsk.length > 0 && (
+                      <div>
+                        <h3 style={labelStyle}>People Also Ask</h3>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                          {seoResults.peopleAlsoAsk.map((q, i) => (
+                            <span key={i} style={{ padding: '6px 12px', background: 'rgba(34,197,94,0.1)', color: '#22c55e', borderRadius: '20px', fontSize: '11px', border: '1px solid rgba(34,197,94,0.2)' }}>
+                              {q.question}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {seoResults.relatedSearches && seoResults.relatedSearches.length > 0 && (
+                      <div>
+                        <h3 style={labelStyle}>Related Keywords</h3>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                          {seoResults.relatedSearches.map((kw, i) => (
+                            <span key={i} style={{ padding: '6px 12px', background: 'rgba(59,130,246,0.1)', color: '#3b82f6', borderRadius: '20px', fontSize: '11px', border: '1px solid rgba(59,130,246,0.2)' }}>
+                              {kw.query}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div style={{ padding: '16px', background: 'rgba(255,69,0,0.05)', borderRadius: '12px', border: '1px solid rgba(255,69,0,0.2)' }}>
+                  <h3 style={{ ...labelStyle, color: '#ff4500' }}>SEO Recommendations</h3>
+                  <ul style={{ color: '#d1d5db', fontSize: '13px', paddingLeft: '20px', lineHeight: '1.6' }}>
+                    <li>Target keywords: <strong>{seoResults.relatedSearches?.[0]?.query || seoKeyword}</strong> and <strong>{seoResults.relatedSearches?.[1]?.query || 'online grammar'}</strong>.</li>
+                    <li>Consider creating content answering questions like: <em>"{seoResults.peopleAlsoAsk?.[0]?.question || 'How to learn grammar?'}"</em></li>
+                    <li>Use a meta title around 50-60 characters including the primary keyword.</li>
+                    <li>Ensure your description is compelling and contains the keyword.</li>
+                  </ul>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ===== CONTENT TAB CONTENT ===== */}
+      {activeTab === 'content' && (
+        <div style={{ maxWidth: '900px', margin: '0 auto', padding: '24px 16px' }}>
 
         {/* Stats bar */}
         <div style={{
@@ -717,8 +857,9 @@ const AdminPanel = ({ onBack }) => {
           </div>
         )}
       </div>
-    </div>
-  );
+    )}
+  </div>
+);
 };
 
 export default AdminPanel;

@@ -8,6 +8,7 @@ import { grammarSteps } from '../src/data/grammarData.js';
 import { HfInference } from '@huggingface/inference';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import Groq from 'groq-sdk';
+import axios from 'axios';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -499,6 +500,50 @@ app.post('/api/chat', async (req, res) => {
   } catch (error) {
     console.error('Chat API Error:', error);
     res.status(500).json({ error: 'Failed to process chat' });
+  }
+});
+
+// ===== SEO ANALYSIS ENDPOINT (SERPER) =====
+app.post('/api/seo/analyze', async (req, res) => {
+  const { keyword } = req.body;
+  const serperApiKey = process.env.SERPER_API_KEY;
+
+  if (!serperApiKey) {
+    return res.status(500).json({ error: 'Serper API key not configured' });
+  }
+
+  try {
+    const data = JSON.stringify({
+      "q": keyword || "learn english grammar online"
+    });
+
+    const config = {
+      method: 'post',
+      url: 'https://google.serper.dev/search',
+      headers: { 
+        'X-API-KEY': serperApiKey, 
+        'Content-Type': 'application/json'
+      },
+      data : data
+    };
+
+    const response = await axios(config);
+    
+    // Extract useful SEO info: Related searches, top titles, people also ask
+    const results = {
+      organic: response.data.organic?.slice(0, 5).map(item => ({
+        title: item.title,
+        snippet: item.snippet,
+        link: item.link
+      })),
+      peopleAlsoAsk: response.data.peopleAlsoAsk,
+      relatedSearches: response.data.relatedSearches,
+    };
+
+    res.json(results);
+  } catch (error) {
+    console.error('Serper API Error:', error);
+    res.status(500).json({ error: 'Failed to fetch SEO data from Serper' });
   }
 });
 
